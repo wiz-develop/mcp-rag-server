@@ -32,8 +32,9 @@ class DocumentProcessor:
     # サポートするファイル拡張子
     SUPPORTED_EXTENSIONS = {
         "text": [".txt", ".md", ".markdown"],
-        "office": [".ppt", ".pptx", ".doc", ".docx"],
+        "office": [".ppt", ".pptx", ".doc", ".docx", ".xls", ".xlsx"],
         "pdf": [".pdf"],
+        "audio": [".wav", ".mp3"],
     }
 
     # デフォルトのマスキングルール
@@ -303,8 +304,10 @@ class DocumentProcessor:
                 self.logger.info(f"テキストファイル '{file_path}' を読み込みました")
                 return content
 
-            # パワーポイント、Word、PDFの場合はmarkitdownを使用して変換
-            elif ext in self.SUPPORTED_EXTENSIONS["office"] or ext in self.SUPPORTED_EXTENSIONS["pdf"]:
+            # パワーポイント、Word、PDF、オーディオファイルの場合はmarkitdownを使用して変換
+            elif (ext in self.SUPPORTED_EXTENSIONS["office"] or 
+                  ext in self.SUPPORTED_EXTENSIONS["pdf"] or 
+                  ext in self.SUPPORTED_EXTENSIONS["audio"]):
                 return self.convert_to_markdown(file_path)
 
             # サポートしていない拡張子の場合
