@@ -171,3 +171,8 @@ cython_debug/
 .pypirc
 
 .DS_Store
+
+
+# NOTE: Additional
+data/source
+data/processed

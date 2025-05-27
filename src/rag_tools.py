@@ -259,7 +259,7 @@ def create_rag_service_from_env() -> RAGService:
     embedding_model = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")
 
     # コンポーネントの作成
-    document_processor = DocumentProcessor()
+    document_processor = DocumentProcessor.create_from_env()
     embedding_generator = EmbeddingGenerator(model_name=embedding_model)
     vector_database = VectorDatabase(
         {

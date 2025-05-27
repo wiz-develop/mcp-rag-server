@@ -23,6 +23,7 @@ MCP RAG Serverは、Model Context Protocol (MCP)に準拠したRAG（Retrieval-A
   - 前後のチャンク取得機能（コンテキストの連続性を確保）
   - ドキュメント全文取得機能（完全なコンテキストを提供）
   - 差分インデックス化機能（新規・変更ファイルのみを処理）
+  - **データマスキング機能**（機密情報の自動マスキング）
 
 - **ツール**
   - ベクトル検索ツール（MCP）
@@ -89,6 +90,9 @@ PROCESSED_DIR=./data/processed
 
 # エンベディングモデル
 EMBEDDING_MODEL=intfloat/multilingual-e5-large
+
+# データマスキング設定
+MASKING_ENABLED=true
 ```
 
 ## 使い方
@@ -263,6 +267,116 @@ Cline/CursorなどのAIツールでMCPサーバーを使用するには、`mcp_s
    ```
 
 4. `search`ツールを使用して検索を行います。
+
+## データマスキング機能
+
+データマスキング機能は、ドキュメント処理時に機密情報を自動的に検出してマスキング（置換）する機能です。この機能により、ベクトルデータベースに機密情報が永続化されることを防ぐことができます。
+
+### 機能概要
+
+- **自動マスキング**: ファイル読み込み時に機密情報を自動検出・置換
+- **カスタマイズ可能**: 環境変数でマスキングルールを柔軟に設定
+- **デフォルトルール**: よくある機密情報パターンを事前定義
+
+### デフォルトマスキングルール
+
+データマスキング機能を有効にすると、以下の機密情報が自動的にマスキングされます：
+
+| 対象 | 置換後 | 説明 |
+|------|--------|------|
+| メールアドレス | `[MASKED_EMAIL]` | test@example.com など |
+| 電話番号（日本） | `[MASKED_PHONE]` | 03-1234-5678、090-1234-5678 など |
+| クレジットカード番号 | `[MASKED_CREDIT_CARD]` | 1234-5678-9012-3456 など |
+| マイナンバー | `[MASKED_SSN]` | 1234-56-789012 など |
+| IPアドレス | `[MASKED_IP]` | 192.168.1.1 など |
+| URL | `[MASKED_URL]` | https://example.com など |
+
+### 設定方法
+
+#### 基本設定
+
+`.env`ファイルでマスキング機能を有効にします：
+
+```env
+# データマスキング機能を有効化
+MASKING_ENABLED=true
+```
+
+#### カスタムマスキングルールの追加
+
+環境変数でカスタムマスキングルールを定義できます：
+
+```env
+# 会社名のマスキング
+MASK_RULE_COMPANY_PATTERN=株式会社[^\s]+
+MASK_RULE_COMPANY_REPLACEMENT=[MASKED_COMPANY]
+MASK_RULE_COMPANY_DESCRIPTION=会社名
+
+# 従業員番号のマスキング
+MASK_RULE_EMPLOYEE_PATTERN=EMP-\d{4,6}
+MASK_RULE_EMPLOYEE_REPLACEMENT=[MASKED_EMPLOYEE_ID]
+MASK_RULE_EMPLOYEE_DESCRIPTION=従業員番号
+
+# 顧客IDのマスキング
+MASK_RULE_CUSTOMER_PATTERN=CUST-[A-Z0-9]{8}
+MASK_RULE_CUSTOMER_REPLACEMENT=[MASKED_CUSTOMER_ID]
+MASK_RULE_CUSTOMER_DESCRIPTION=顧客ID
+```
+
+#### ルール定義の形式
+
+カスタムマスキングルールは以下の形式で定義します：
+
+```
+MASK_RULE_<ルール名>_PATTERN=<正規表現パターン>
+MASK_RULE_<ルール名>_REPLACEMENT=<置換文字列>
+MASK_RULE_<ルール名>_DESCRIPTION=<ルールの説明>（オプション）
+```
+
+- **PATTERN**: マスキング対象を検出する正規表現
+- **REPLACEMENT**: 検出された文字列を置換する文字列
+- **DESCRIPTION**: ルールの説明（オプション、ログ出力に使用）
+
+### 使用例
+
+#### マスキング前のドキュメント
+```markdown
+# 顧客情報
+
+- 氏名: 田中太郎
+- メール: tanaka@company.com
+- 電話: 03-1234-5678
+- クレジットカード: 4111-1111-1111-1111
+- ウェブサイト: https://company.com
+```
+
+#### マスキング後（MASKING_ENABLED=true）
+```markdown
+# 顧客情報
+
+- 氏名: 田中太郎
+- メール: [MASKED_EMAIL]
+- 電話: [MASKED_PHONE]
+- クレジットカード: [MASKED_CREDIT_CARD]
+- ウェブサイト: [MASKED_URL]
+```
+
+### 動作タイミング
+
+データマスキングは以下のタイミングで実行されます：
+
+1. **ファイル読み込み時**: `DocumentProcessor.read_file()`
+2. **マークダウン変換時**: Office文書・PDF変換後
+3. **インデックス化前**: ベクトルデータベース格納前
+
+これにより、機密情報がベクトルデータベースに永続化されることを防ぎます。
+
+### 注意事項
+
+- マスキング機能を有効にすると、検索時にも元の機密情報ではマッチしなくなります
+- マスキングは不可逆的な処理です（元の情報に戻すことはできません）
+- 正規表現パターンを慎重に設計して、必要な情報まで誤ってマスキングしないよう注意してください
+- 大量のテキストを処理する場合、マスキング処理により若干の性能低下が発生する可能性があります
 
 ## バックアップと復元
 

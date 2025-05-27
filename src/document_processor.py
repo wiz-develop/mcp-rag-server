@@ -7,8 +7,9 @@
 import logging
 import os
 import json
+import re
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import hashlib
 import time
 
@@ -20,9 +21,12 @@ class DocumentProcessor:
     ドキュメント処理クラス
 
     マークダウン、テキスト、パワーポイント、PDFなどのファイルの読み込みと解析、チャンク分割を行います。
+    データマスキング機能を含みます。
 
     Attributes:
         logger: ロガー
+        masking_enabled: マスキング機能を有効にするかどうか
+        masking_rules: マスキングルールのリスト
     """
 
     # サポートするファイル拡張子
@@ -32,13 +36,243 @@ class DocumentProcessor:
         "pdf": [".pdf"],
     }
 
-    def __init__(self):
+    # デフォルトのマスキングルール
+    DEFAULT_MASKING_RULES = [
+        {
+            "name": "email",
+            "pattern": r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            "replacement": "[MASKED_EMAIL]",
+            "description": "メールアドレス"
+        },
+        {
+            "name": "credit_card",
+            "pattern": r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',
+            "replacement": "[MASKED_CREDIT_CARD]",
+            "description": "クレジットカード番号"
+        },
+        {
+            "name": "phone_jp",
+            "pattern": r'\b(?:0\d{1,4}|0\d{2,3}|\d{2,4})-\d{2,4}-\d{4}\b',
+            "replacement": "[MASKED_PHONE]",
+            "description": "日本の電話番号"
+        },
+        {
+            "name": "social_security_jp",
+            "pattern": r'\d{4}-\d{2}-\d{6}',
+            "replacement": "[MASKED_SSN]",
+            "description": "マイナンバー"
+        },
+        {
+            "name": "ip_address",
+            "pattern": r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',
+            "replacement": "[MASKED_IP]",
+            "description": "IPアドレス"
+        },
+        {
+            "name": "url",
+            "pattern": r'https?://[^\s<>"]+',
+            "replacement": "[MASKED_URL]",
+            "description": "URL"
+        }
+    ]
+
+    def __init__(self, masking_enabled: bool = False, custom_masking_rules: Optional[List[Dict[str, str]]] = None):
         """
         DocumentProcessorのコンストラクタ
+
+        Args:
+            masking_enabled: マスキング機能を有効にするかどうか（デフォルト: False）
+            custom_masking_rules: カスタムマスキングルールのリスト（オプション）
         """
         # ロガーの設定
         self.logger = logging.getLogger("document_processor")
         self.logger.setLevel(logging.INFO)
+
+        # マスキング機能の設定
+        self.masking_enabled = masking_enabled
+        self.masking_rules = self.DEFAULT_MASKING_RULES.copy()
+
+        # カスタムマスキングルールを追加
+        if custom_masking_rules:
+            self.masking_rules.extend(custom_masking_rules)
+
+        # 環境変数からマスキングルールを読み込み
+        self._load_masking_rules_from_env()
+
+        if self.masking_enabled:
+            self.logger.info(f"データマスキング機能が有効です（{len(self.masking_rules)} ルール）")
+
+    def _load_masking_rules_from_env(self) -> None:
+        """
+        環境変数からマスキングルールを読み込みます。
+
+        環境変数の形式:
+        - MASK_RULE_<rule_name>_PATTERN: マスキングパターン（正規表現）
+        - MASK_RULE_<rule_name>_REPLACEMENT: 置換文字列
+        - MASK_RULE_<rule_name>_DESCRIPTION: ルールの説明（オプション）
+
+        例:
+        - MASK_RULE_COMPANY_PATTERN="株式会社[^\\s]+"
+        - MASK_RULE_COMPANY_REPLACEMENT="[MASKED_COMPANY]"
+        - MASK_RULE_COMPANY_DESCRIPTION="会社名"
+        """
+        import os
+
+        # 環境変数からマスキングルールを抽出
+        env_rules = {}
+        for key, value in os.environ.items():
+            if key.startswith("MASK_RULE_"):
+                parts = key.split("_", 3)  # MASK_RULE_<rule_name>_<field>
+                if len(parts) >= 4:
+                    rule_name = parts[2].lower()
+                    field = parts[3].lower()
+
+                    if rule_name not in env_rules:
+                        env_rules[rule_name] = {}
+
+                    env_rules[rule_name][field] = value
+
+        # 完全なルール（patternとreplacementが両方ある）のみを追加
+        for rule_name, rule_data in env_rules.items():
+            if "pattern" in rule_data and "replacement" in rule_data:
+                # 既存のルールと重複していないかチェック
+                existing_names = {rule["name"] for rule in self.masking_rules}
+                if rule_name not in existing_names:
+                    self.masking_rules.append({
+                        "name": rule_name,
+                        "pattern": rule_data["pattern"],
+                        "replacement": rule_data["replacement"],
+                        "description": rule_data.get("description", f"環境変数で定義されたカスタムルール: {rule_name}")
+                    })
+                    self.logger.info(f"環境変数からマスキングルール '{rule_name}' を追加しました")
+                else:
+                    self.logger.warning(f"マスキングルール '{rule_name}' は既に存在するため、環境変数からの追加をスキップしました")
+            else:
+                missing_fields = []
+                if "pattern" not in rule_data:
+                    missing_fields.append("PATTERN")
+                if "replacement" not in rule_data:
+                    missing_fields.append("REPLACEMENT")
+                self.logger.warning(f"環境変数のマスキングルール '{rule_name}' に必要なフィールドが不足しています: {', '.join(missing_fields)}")
+
+    @classmethod
+    def create_from_env(cls) -> 'DocumentProcessor':
+        """
+        環境変数からDocumentProcessorを作成します。
+
+        環境変数:
+        - MASKING_ENABLED: マスキング機能を有効にするかどうか（"true"/"false", デフォルト: "false"）
+
+        Returns:
+            DocumentProcessorのインスタンス
+        """
+        import os
+
+        # 環境変数からマスキング設定を取得
+        masking_enabled = os.environ.get("MASKING_ENABLED", "false").lower() == "true"
+
+        return cls(masking_enabled=masking_enabled)
+
+    def apply_data_masking(self, text: str) -> str:
+        """
+        テキストにデータマスキングを適用します。
+
+        Args:
+            text: マスキング対象のテキスト
+
+        Returns:
+            マスキング後のテキスト
+        """
+        if not self.masking_enabled:
+            return text
+
+        masked_text = text
+        masked_count = 0
+
+        for rule in self.masking_rules:
+            try:
+                pattern = rule["pattern"]
+                replacement = rule["replacement"]
+                rule_name = rule["name"]
+
+                # マッチ数を数える
+                matches = re.findall(pattern, masked_text)
+                if matches:
+                    rule_match_count = len(matches)
+                    masked_count += rule_match_count
+
+                    # マスキングを適用
+                    masked_text = re.sub(pattern, replacement, masked_text)
+
+                    self.logger.debug(f"マスキングルール '{rule_name}': {rule_match_count} 個の項目をマスキングしました")
+
+            except re.error as e:
+                self.logger.error(f"マスキングルール '{rule_name}' の正規表現エラー: {str(e)}")
+                continue
+
+        if masked_count > 0:
+            self.logger.info(f"合計 {masked_count} 個の機密情報をマスキングしました")
+
+        return masked_text
+
+    def add_masking_rule(self, name: str, pattern: str, replacement: str, description: str = "") -> None:
+        """
+        新しいマスキングルールを追加します。
+
+        Args:
+            name: ルールの名前
+            pattern: 正規表現パターン
+            replacement: 置換文字列
+            description: ルールの説明（オプション）
+        """
+        # 同じ名前のルールが既に存在する場合は更新
+        for i, rule in enumerate(self.masking_rules):
+            if rule["name"] == name:
+                self.masking_rules[i] = {
+                    "name": name,
+                    "pattern": pattern,
+                    "replacement": replacement,
+                    "description": description
+                }
+                self.logger.info(f"マスキングルール '{name}' を更新しました")
+                return
+
+        # 新しいルールを追加
+        self.masking_rules.append({
+            "name": name,
+            "pattern": pattern,
+            "replacement": replacement,
+            "description": description
+        })
+        self.logger.info(f"マスキングルール '{name}' を追加しました")
+
+    def remove_masking_rule(self, name: str) -> bool:
+        """
+        マスキングルールを削除します。
+
+        Args:
+            name: 削除するルールの名前
+
+        Returns:
+            削除に成功した場合はTrue、ルールが見つからない場合はFalse
+        """
+        for i, rule in enumerate(self.masking_rules):
+            if rule["name"] == name:
+                del self.masking_rules[i]
+                self.logger.info(f"マスキングルール '{name}' を削除しました")
+                return True
+
+        self.logger.warning(f"マスキングルール '{name}' が見つかりません")
+        return False
+
+    def list_masking_rules(self) -> List[Dict[str, str]]:
+        """
+        現在のマスキングルールのリストを取得します。
+
+        Returns:
+            マスキングルールのリスト
+        """
+        return self.masking_rules.copy()
 
     def read_file(self, file_path: str) -> str:
         """
@@ -64,6 +298,8 @@ class DocumentProcessor:
                     content = f.read()
                     # NUL文字を削除
                     content = content.replace("\x00", "")
+                    # データマスキングを適用
+                    content = self.apply_data_masking(content)
                 self.logger.info(f"テキストファイル '{file_path}' を読み込みました")
                 return content
 
@@ -104,6 +340,8 @@ class DocumentProcessor:
             markdown_content = markitdown.MarkItDown().convert_uri(file_uri).markdown
             # NUL文字を削除
             markdown_content = markdown_content.replace("\x00", "")
+            # データマスキングを適用
+            markdown_content = self.apply_data_masking(markdown_content)
 
             self.logger.info(f"ファイル '{file_path}' をマークダウンに変換しました")
             return markdown_content
