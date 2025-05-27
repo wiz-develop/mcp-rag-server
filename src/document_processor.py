@@ -41,19 +41,19 @@ class DocumentProcessor:
     DEFAULT_MASKING_RULES = [
         {
             "name": "email",
-            "pattern": r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+            "pattern": r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}',
             "replacement": "[MASKED_EMAIL]",
             "description": "メールアドレス"
         },
         {
             "name": "credit_card",
-            "pattern": r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b',
+            "pattern": r'\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}',
             "replacement": "[MASKED_CREDIT_CARD]",
             "description": "クレジットカード番号"
         },
         {
             "name": "phone_jp",
-            "pattern": r'\b(?:0\d{1,4}|0\d{2,3}|\d{2,4})-\d{2,4}-\d{4}\b',
+            "pattern": r'(?:0\d{1,4}|0\d{2,3}|\d{2,4})-\d{2,4}-\d{4}',
             "replacement": "[MASKED_PHONE]",
             "description": "日本の電話番号"
         },
@@ -65,7 +65,7 @@ class DocumentProcessor:
         },
         {
             "name": "ip_address",
-            "pattern": r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',
+            "pattern": r'(?:[0-9]{1,3}\.){3}[0-9]{1,3}',
             "replacement": "[MASKED_IP]",
             "description": "IPアドレス"
         },
@@ -215,6 +215,75 @@ class DocumentProcessor:
             self.logger.info(f"合計 {masked_count} 個の機密情報をマスキングしました")
 
         return masked_text
+
+    def apply_filename_masking(self, filename: str) -> str:
+        """
+        ファイル名にデータマスキングを適用します。
+
+        Args:
+            filename: マスキング対象のファイル名
+
+        Returns:
+            マスキング後のファイル名（ファイルシステムで使用可能な文字に変換）
+        """
+        if not self.masking_enabled:
+            return filename
+
+        # ファイル拡張子を分離
+        path_obj = Path(filename)
+        stem = path_obj.stem  # 拡張子を除いたファイル名
+        suffix = path_obj.suffix  # 拡張子
+
+        # ファイル名本体にマスキングを適用
+        masked_stem = self.apply_data_masking(stem)
+
+        # ファイル名で使用できない文字を変換
+        sanitized_stem = self._sanitize_filename(masked_stem)
+
+        # 拡張子と結合して返す
+        return sanitized_stem + suffix
+
+    def _sanitize_filename(self, filename: str) -> str:
+        """
+        ファイル名で使用できない文字を安全な文字に変換します。
+
+        Args:
+            filename: 変換対象のファイル名
+
+        Returns:
+            安全なファイル名
+        """
+        # Windows/Unix共通で使用できない文字とその置き換え
+        invalid_chars = {
+            '<': '＜',  # 全角に変換
+            '>': '＞',
+            ':': '：',
+            '"': '”',  # 右ダブルクォートーションマーク
+            '/': '／',  # 全角スラッシュ
+            '\\': '＼',  # 全角バックスラッシュ
+            '|': '｜',  # 全角パイプ
+            '?': '？',  # 全角クエスチョン
+            '*': '＊',  # 全角アスタリスク
+        }
+
+        sanitized = filename
+        for invalid_char, replacement in invalid_chars.items():
+            sanitized = sanitized.replace(invalid_char, replacement)
+
+        # 制御文字（ASCII 0-31）をアンダースコアに変換
+        sanitized = ''.join(char if ord(char) >= 32 else '_' for char in sanitized)
+
+        # ファイル名の最大長を制限（255バイト）
+        if len(sanitized.encode('utf-8')) > 255:
+            # UTF-8で255バイト以下にする
+            while len(sanitized.encode('utf-8')) > 255 and len(sanitized) > 1:
+                sanitized = sanitized[:-1]
+
+        # 空文字列やドットのみの場合はデフォルト名を使用
+        if not sanitized or sanitized.replace('.', '').strip() == '':
+            sanitized = 'masked_file'
+
+        return sanitized
 
     def add_masking_rule(self, name: str, pattern: str, replacement: str, description: str = "") -> None:
         """
@@ -501,8 +570,10 @@ class DocumentProcessor:
             # ディレクトリ名をサフィックスとして使用
             dir_suffix = "_".join(parent_dirs) if parent_dirs else ""
 
-            # 処理済みファイル名を生成
-            processed_file_name = f"{file_path_obj.stem}{('_' + dir_suffix) if dir_suffix else ''}.md"
+            # 処理済みファイル名を生成（マスキング適用）
+            masked_stem = self.apply_filename_masking(file_path_obj.stem + file_path_obj.suffix).replace(file_path_obj.suffix, '')
+            masked_dir_suffix = self._sanitize_filename(self.apply_data_masking(dir_suffix)) if dir_suffix else ""
+            processed_file_name = f"{masked_stem}{('_' + masked_dir_suffix) if masked_dir_suffix else ''}.md"
             processed_file_path = Path(processed_dir) / processed_file_name
 
             # 処理済みディレクトリが存在しない場合は作成
@@ -529,9 +600,12 @@ class DocumentProcessor:
                         "original_file_path": file_path,
                         "chunk_index": i,
                         "metadata": {
-                            "file_name": file_path_obj.name,
-                            "directory": str(file_path_obj.parent),
-                            "directory_suffix": dir_suffix,
+                            "file_name": self.apply_filename_masking(file_path_obj.name),
+                            "directory": self.apply_data_masking(str(file_path_obj.parent)),
+                            "directory_suffix": self.apply_data_masking(dir_suffix),
+                            "original_file_name": file_path_obj.name,
+                            "original_directory": str(file_path_obj.parent),
+                            "original_directory_suffix": dir_suffix,
                         },
                     }
                 )
