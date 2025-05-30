@@ -9,7 +9,8 @@ MCP RAG Serverは、Model Context Protocol (MCP)に準拠したRAG（Retrieval-A
 ## 機能
 
 - **MCPサーバーの基本実装**
-  - JSON-RPC over stdioベースで動作
+  - JSON-RPC over stdioベースで動作（従来版）
+  - **Streamable HTTP対応**（新機能：リモートMCPクライアント対応）
   - ツールの登録と実行のためのメカニズム
   - エラーハンドリングとロギング
 
@@ -99,7 +100,9 @@ MASKING_ENABLED=true
 
 ### MCPサーバーの起動
 
-#### uvを使用する場合（推奨）
+#### STDIO版（従来版：Claude Desktop等のローカル接続用）
+
+uvを使用する場合（推奨）：
 
 ```bash
 uv run python -m src.main
@@ -111,10 +114,51 @@ uv run python -m src.main
 uv run python -m src.main --name "my-rag-server" --version "1.0.0" --description "My RAG Server"
 ```
 
-#### 通常のPythonを使用する場合
+通常のPythonを使用する場合：
 
 ```bash
-python -m src.main
+uv run python -m src.main
+```
+
+#### HTTP版（新機能：リモートMCP接続用）
+
+Streamable HTTP MCPサーバーを起動する場合：
+
+```bash
+# デフォルト設定で起動（127.0.0.1:8000）
+uv run python -m src.http_main
+
+# ホストとポートを指定
+uv run python -m src.http_main --host 0.0.0.0 --port 8080
+
+# 全オプション指定
+uv run python -m src.http_main --name "my-rag-server" --host 0.0.0.0 --port 8080 --path "/mcp" --log-level DEBUG
+```
+
+HTTP版のオプション：
+- `--host`: サーバーのホスト（デフォルト: 127.0.0.1）
+- `--port`: サーバーのポート（デフォルト: 8000）
+- `--path`: MCPエンドポイントのパス（デフォルト: /mcp）
+- `--log-level`: ログレベル（DEBUG, INFO, WARNING, ERROR）
+
+HTTP版サーバーが起動すると、以下のURLでアクセス可能になります：
+```
+http://127.0.0.1:8000/mcp
+```
+
+#### Docker Compose（HTTP版の本格運用用）
+
+HTTP版をDocker環境で実行する場合：
+
+```bash
+# PostgreSQLと一緒にHTTP MCPサーバーを起動
+docker-compose -f docker-compose.http.yml up -d
+
+# ログを確認
+docker-compose -f docker-compose.http.yml logs -f mcp-rag-http-server
+
+# 停止
+docker-compose -f docker-compose.http.yml down
 ```
 
 ### コマンドラインツール（CLI）の使用方法
@@ -124,39 +168,39 @@ python -m src.main
 #### ヘルプの表示
 
 ```bash
-python -m src.cli --help
+uv run python -m src.cli --help
 ```
 
 #### インデックスのクリア
 
 ```bash
-python -m src.cli clear
+uv run python -m src.cli clear
 ```
 
 #### ドキュメントのインデックス化
 
 ```bash
 # デフォルト設定でインデックス化（./data/source ディレクトリ）
-python -m src.cli index
+uv run python -m src.cli index
 
 # 特定のディレクトリをインデックス化
-python -m src.cli index --directory ./path/to/documents
+uv run python -m src.cli index --directory ./path/to/documents
 
 # チャンクサイズとオーバーラップを指定してインデックス化
-python -m src.cli index --directory ./data/source --chunk-size 300 --chunk-overlap 50
+uv run python -m src.cli index --directory ./data/source --chunk-size 300 --chunk-overlap 50
 # または短い形式で
-python -m src.cli index -d ./data/source -s 300 -o 50
+uv run python -m src.cli index -d ./data/source -s 300 -o 50
 
 # 差分インデックス化（新規・変更ファイルのみを処理）
-python -m src.cli index --incremental
+uv run python -m src.cli index --incremental
 # または短い形式で
-python -m src.cli index -i
+uv run python -m src.cli index -i
 ```
 
 #### インデックス内のドキュメント数の取得
 
 ```bash
-python -m src.cli count
+uv run python -m src.cli count
 ```
 
 ### Cline/Cursorでの設定
@@ -255,10 +299,10 @@ Cline/CursorなどのAIツールでMCPサーバーを使用するには、`mcp_s
 2. CLIコマンドを使用してドキュメントをインデックス化します：
    ```bash
    # 初回は全件インデックス化
-   python -m src.cli index
+   uv run python -m src.cli index
 
    # 以降は差分インデックス化で効率的に更新
-   python -m src.cli index -i
+   uv run python -m src.cli index -i
    ```
 
 3. MCPサーバーを起動します：

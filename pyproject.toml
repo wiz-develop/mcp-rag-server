@@ -21,6 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "mcp[cli]",
+    "fastmcp",
     "python-dotenv",
     "psycopg2-binary",
     "sentence-transformers",
@@ -37,6 +38,7 @@ dev = [
 [project.scripts]
 mcp-rag-server = "src.main:main"
 mcp-rag-cli = "src.cli:main"
+mcp-rag-http-server = "src.http_main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
