@@ -124,7 +124,7 @@ def index_documents(directory_path, chunk_size=500, chunk_overlap=100, increment
         for file in files:
             file_path = os.path.join(root, file)
             ext = os.path.splitext(file_path)[1].lower()
-            if ext in [".md", ".markdown", ".txt", ".pdf", ".ppt", ".pptx", ".doc", ".docx"]:
+            if ext in [".md", ".markdown", ".txt", ".pdf", ".ppt", ".pptx", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png", ".wav", ".mp3", ".html", ".csv", ".json", ".xml", ".zip"]:
                 total_files += 1
 
     print(f"合計 {total_files} 個のファイルを検索しました...")

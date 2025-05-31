@@ -55,13 +55,13 @@ class TestFilenameMasking:
             result = processor.apply_filename_masking(test_filename)
             assert expected_char in result
             assert result.endswith(".txt")
-        
+
         # スラッシュとバックスラッシュは別途テスト（ディレクトリ区切り文字として解釈される可能性があるため）
         slash_test_cases = [
             ("filename.txt", "/", "filename／slash.txt"),  # /を含むファイル名
             ("filename.txt", "\\", "filename￥backslash.txt"),  # \\を含むファイル名
         ]
-        
+
         for base_filename, char, test_filename in slash_test_cases:
             # 直接サニタイズ関数をテスト
             sanitized = processor._sanitize_filename(test_filename.replace(".txt", ""))

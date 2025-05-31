@@ -295,6 +295,11 @@ Cline/CursorなどのAIツールでMCPサーバーを使用するには、`mcp_s
    - パワーポイント（.ppt, .pptx）
    - Word（.doc, .docx）
    - PDF（.pdf）
+   - Excel（.xls, .xlsx）
+   - 画像（.jpg, .jpeg, .png）
+   - HTML（.html）
+   - Text-based formats（CSV, JSON, XML）
+   - ZIP files (iterates over contents)
 
 2. CLIコマンドを使用してドキュメントをインデックス化します：
    ```bash
